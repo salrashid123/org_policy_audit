@@ -1,0 +1,15 @@
+{
+    "requestId": "124ab1c",
+    "caller": "//bigquery.googleapis.com/projects/myproject/jobs/myproject:US.bquxjob_5b4c112c_17961fafeaf",
+    "sessionUser": "test-user@test-company.com",
+    "userDefinedContext": {
+     "key1": "value1",
+     "key2": "v2"
+    },
+    "calls": [
+     ["projects/cicp-oidc/policies/iam.disableServiceAccountKeyCreation"],
+     ["projects/cicp-saml/policies/iam.disableServiceAccountKeyCreation"],
+     ["projects/fabled-ray-104117/policies/iam.disableServiceAccountKeyCreation"],
+     ["folders/750467892309/policies/iam.disableServiceAccountKeyCreation"]      
+    ]
+}
