@@ -646,31 +646,31 @@ So a query at the folder and project level yields a new binding match
 ```sql
 $ bq  query --use_legacy_sql=false  '
 WITH a AS
-  (SELECT
-  name,
-  resource.parent
+ (SELECT
+ name,
+ resource.parent
 FROM
-  `mydataset1.export_orgpolicy_googleapis_com_Policy`,
-  UNNEST(resource.DATA.spec.rules) AS r
+ `mydataset1.export_orgpolicy_googleapis_com_Policy`,
+ UNNEST(resource.DATA.spec.rules) AS r
 WHERE
-  ENDS_WITH(name, "iam.disableServiceAccountKeyCreation") = TRUE
-  AND r.enforce= FALSE
+ ENDS_WITH(name, "iam.disableServiceAccountKeyCreation") = TRUE
+ AND r.enforce= FALSE
 )
 SELECT
-  DISTINCT(p.name), p.resource.data.projectId, p.resource.data.projectNumber
+ DISTINCT(p.name), p.resource.data.projectId, p.resource.data.projectNumber, mydataset1.get_effective_policy(CONCAT("projects/",p.resource.data.projectId, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
-  `mydataset1.export_cloudresourcemanager_googleapis_com_Project` as p, a
+ `mydataset1.export_cloudresourcemanager_googleapis_com_Project` as p, a
 WHERE
-  REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
+ REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
 
++-------------------------------------------------------------+--------------+---------------+----------------------------------------+
+|                            name                             |  projectId   | projectNumber |                enforced                |
++-------------------------------------------------------------+--------------+---------------+----------------------------------------+
+| //cloudresourcemanager.googleapis.com/projects/135456271006 | cicp-saml    | 135456271006  | {"rules":[{"Kind":{"Enforce":false}}]} |
+| //cloudresourcemanager.googleapis.com/projects/508803172602 | fb-federated | 508803172602  | {"rules":[{"Kind":{"Enforce":false}}]} |
+| //cloudresourcemanager.googleapis.com/projects/343794733782 | cicp-oidc    | 343794733782  | {"rules":[{"Kind":{"Enforce":false}}]} |
++-------------------------------------------------------------+--------------+---------------+----------------------------------------+
 
-+-------------------------------------------------------------+--------------+---------------+
-|                            name                             |  projectId   | projectNumber |
-+-------------------------------------------------------------+--------------+---------------+
-| //cloudresourcemanager.googleapis.com/projects/135456271006 | cicp-saml    | 135456271006  |
-| //cloudresourcemanager.googleapis.com/projects/508803172602 | fb-federated | 508803172602  |
-| //cloudresourcemanager.googleapis.com/projects/343794733782 | cicp-oidc    | 343794733782  |
-+-------------------------------------------------------------+--------------+---------------+
 ```
 
 - Folder
@@ -689,18 +689,19 @@ WHERE
   AND r.enforce= FALSE
 )
 SELECT
-  DISTINCT(p.name)                                                          
+  DISTINCT(f.name), mydataset1.get_effective_policy(CONCAT(f.resource.data.name, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
-  `mydataset1.export_cloudresourcemanager_googleapis_com_Folder` as p, a
+  `mydataset1.export_cloudresourcemanager_googleapis_com_Folder` as f, a
 WHERE
   REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
+ 
++------------------------------------------------------------+----------------------------------------+
+|                            name                            |                enforced                |
++------------------------------------------------------------+----------------------------------------+
+| //cloudresourcemanager.googleapis.com/folders/295520844332 | {"rules":[{"Kind":{"Enforce":false}}]} |
+| //cloudresourcemanager.googleapis.com/folders/750467892309 | {"rules":[{"Kind":{"Enforce":false}}]} |
++------------------------------------------------------------+----------------------------------------+
 
-+------------------------------------------------------------+
-|                            name                            |
-+------------------------------------------------------------+
-| //cloudresourcemanager.googleapis.com/folders/295520844332 |
-| //cloudresourcemanager.googleapis.com/folders/750467892309 |
-+------------------------------------------------------------+
 ```
 
 ---
