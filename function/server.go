@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"sync"
 
@@ -134,7 +135,7 @@ func GET_EFFECTIVE_POLICY(w http.ResponseWriter, r *http.Request) {
 							cancel()
 							return
 						}
-						objs[j] = fmt.Sprintf("%v", buffer.String())
+						objs[j] = strings.TrimSuffix(fmt.Sprintf("%v", buffer.String()), "\n")
 						return
 					}
 				}

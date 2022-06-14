@@ -354,10 +354,10 @@ it will respond back with list of policySpecs // https://pkg.go.dev/google.golan
 ```json
 {
   "replies": [
-    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}\n",
-    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}\n",
-    "{\"rules\":[{\"Kind\":{\"Enforce\":true}}]}\n",
-    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}\n"
+    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}",
+    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}",
+    "{\"rules\":[{\"Kind\":{\"Enforce\":true}}]}",
+    "{\"rules\":[{\"Kind\":{\"Enforce\":false}}]}"
   ]
 }
 ```
@@ -388,6 +388,8 @@ gcloud organizations list
 gcloud organizations add-iam-policy-binding  673208786098 \
   --member=serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com \
   --role=roles/orgpolicy.policyViewer -q
+
+cd function/
 
 gcloud run deploy get-effective-policy \
    --source . \
