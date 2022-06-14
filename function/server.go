@@ -102,11 +102,17 @@ func GET_EFFECTIVE_POLICY(w http.ResponseWriter, r *http.Request) {
 						var err error
 						if err := limiter.Wait(ctx); err != nil {
 							fmt.Printf("Error in rate limiter %v\n", err)
-							panic(err)
+							bqResp.ErrorMessage = fmt.Sprintf("Error in rate limiter for row %d, [%v]", j, err)
+							bqResp.Replies = nil
+							cancel()
+							return
 						}
 						if ctx.Err() != nil {
 							fmt.Printf("Error in rate limiter %v\n", err)
-							panic(err)
+							bqResp.ErrorMessage = fmt.Sprintf("Error in rate limiter for row %d, [%v]", j, err)
+							bqResp.Replies = nil
+							cancel()
+							return
 						}
 						resp, err := orgClient.GetEffectivePolicy(ctx, &orgpb.GetEffectivePolicyRequest{
 							Name: name,

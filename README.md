@@ -86,7 +86,7 @@ This article is about how you can figure out these overrides for a simple [Boole
 
 For a bit more background, lets look at the APIs and datastructures we'd usually use
 
-If we query the org node using the [Asset API](https://cloud.google.com/asset-inventory/docs/reference/rest) and filter on the constraints and `orgpolicy.googleapis.com/Policy`, we'll see that the org node has exemptions for two things:
+If we query the org node using the [Asset API](https://cloud.google.com/asset-inventory/docs/reference/rest) and filter on the constraints and `orgpolicy.googleapis.com/Policy`, we'll see that the org node has exemptions in place here:
 
 * projectNumber: `135456271006 (cicp-saml)`
 * folder:  `750467892309 (folder1)` 
@@ -196,57 +196,16 @@ gcloud asset search-all-resources    --scope='folders/750467892309' \
 
 # and query that project
 
-gcloud asset list --project=cicp-saml --billing-project=fabled-ray-104117   \
-   --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'  \
-   --format=json | jq '.[] | select(.resource.data.name| endswith("iam.disableServiceAccountKeyCreation")) | select(.resource.data.spec.rules[].enforce==false) | .'
-
-      {
-        "ancestors": [
-          "projects/135456271006",
-          "organizations/673208786098"
-        ],
-        "assetType": "orgpolicy.googleapis.com/Policy",
-        "name": "//orgpolicy.googleapis.com/projects/135456271006/policies/iam.disableServiceAccountKeyCreation",
-        "resource": {
-          "data": {
-            "name": "projects/135456271006/policies/iam.disableServiceAccountKeyCreation",
-            "spec": {
-              "rules": [
-                {
-                  "enforce": false
-                }
-              ],
-              "updateTime": "2022-06-11T16:37:05.437595Z"
-            }
-          },
-          "discoveryDocumentUri": "https://orgpolicy.googleapis.com/$discovery/rest?version=v2",
-          "discoveryName": "Policy",
-          "parent": "//cloudresourcemanager.googleapis.com/projects/135456271006",
-          "version": "v2"
-        },
-        "updateTime": "2022-06-12T16:00:00Z"
-      }
-
+$ gcloud asset list --project=cicp-oidc --billing-project=fabled-ray-104117      --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'     --format=json --format=json
+[]
+# empty...
 ```
 
-However, note that if i query a project that _inherited_ the policy from a *folder* (`folder1->cicp-oidc`), i will not see a binding.  In this case, `cicp-oidc` gets a policy from its parent folder so there is no binding directly.
+Its an empty set in this case, `cicp-oidc` gets a policy from its parent folder so there is no binding directly.  This makes it a bit harder to figure out if a specific folder has a policy inherited: you either have to use `getEffectiveOrgPolicy` api or know that the parent node has a policy in effect (eg you know `folder` has a policy)
 
-```bash
-$ gcloud asset list --project=cicp-oidc --billing-project=fabled-ray-104117  --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'
-    Listed 0 items.
-```
 
 ... the point of this background is that its an iterative approach and adds toil.
 
----
-
-### Other References
-
-- [Realtime GCP assets and access monitoring using Cloud Asset Monitor and Cloud Log Streaming](https://blog.salrashid.dev/articles/2022/asset_monitor/)
-- [BigQuery Remote Functions in Go](https://blog.salrashid.dev/articles/2022/bq_cloud_function_golang/)
-- [Using Google Cloud IAM Deny](https://blog.salrashid.dev/articles/2022/iam_deny/)
-- [Identifying which IAM Permissions an end-user has on a resource in Google Cloud](https://blog.salrashid.dev/articles/2022/gcp_iam/)
----
 
 ### Approach
 
@@ -479,18 +438,19 @@ WHERE
   AND r.enforce= FALSE
 )
 SELECT
-   DISTINCT(p.name), p.resource.data.projectId, p.resource.data.projectNumber, mydataset1.get_effective_policy(CONCAT("projects/",p.resource.data.projectId, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
+   DISTINCT(p.resource.data.projectId), mydataset1.get_effective_policy(CONCAT("projects/",p.resource.data.projectId, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
   `mydataset1.export_cloudresourcemanager_googleapis_com_Project` as p, a
 WHERE
   REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
 
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
-|                            name                             |  projectId   | projectNumber |                enforced                |
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
-| //cloudresourcemanager.googleapis.com/projects/343794733782 | cicp-oidc    | 343794733782  | {"rules":[{"Kind":{"Enforce":false}}]} |
-| //cloudresourcemanager.googleapis.com/projects/135456271006 | cicp-saml    | 135456271006  | {"rules":[{"Kind":{"Enforce":false}}]} |
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
++--------------+----------------------------------------+
+|  projectId   |                enforced                |
++--------------+----------------------------------------+
+| cicp-saml    | {"rules":[{"Kind":{"Enforce":false}}]} |
+| cicp-oidc    | {"rules":[{"Kind":{"Enforce":false}}]} |
++--------------+----------------------------------------+
+
 
 ```
 
@@ -510,17 +470,18 @@ WHERE
   AND r.enforce= FALSE
 )
 SELECT
-   DISTINCT(f.name), f.resource.data.name, f.resource.data.displayName, mydataset1.get_effective_policy(CONCAT(f.resource.data.name, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
+   DISTINCT(f.resource.data.name), f.resource.data.displayName, mydataset1.get_effective_policy(CONCAT(f.resource.data.name, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
   `mydataset1.export_cloudresourcemanager_googleapis_com_Folder` as f, a
 WHERE
   REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
 
-+------------------------------------------------------------+----------------------+-------------+----------------------------------------+
-|                            name                            |        name_1        | displayName |                enforced                |
-+------------------------------------------------------------+----------------------+-------------+----------------------------------------+
-| //cloudresourcemanager.googleapis.com/folders/750467892309 | folders/750467892309 | folder1     | {"rules":[{"Kind":{"Enforce":false}}]} |
-+------------------------------------------------------------+----------------------+-------------+----------------------------------------+
++----------------------+-------------+----------------------------------------+
+|         name         | displayName |                enforced                |
++----------------------+-------------+----------------------------------------+
+| folders/750467892309 | folder1     | {"rules":[{"Kind":{"Enforce":false}}]} |
++----------------------+-------------+----------------------------------------+
+
 ```
 
 ---
@@ -657,19 +618,20 @@ WHERE
  AND r.enforce= FALSE
 )
 SELECT
- DISTINCT(p.name), p.resource.data.projectId, p.resource.data.projectNumber, mydataset1.get_effective_policy(CONCAT("projects/",p.resource.data.projectId, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
+ DISTINCT(p.resource.data.projectId), mydataset1.get_effective_policy(CONCAT("projects/",p.resource.data.projectId, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
  `mydataset1.export_cloudresourcemanager_googleapis_com_Project` as p, a
 WHERE
  REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
 
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
-|                            name                             |  projectId   | projectNumber |                enforced                |
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
-| //cloudresourcemanager.googleapis.com/projects/135456271006 | cicp-saml    | 135456271006  | {"rules":[{"Kind":{"Enforce":false}}]} |
-| //cloudresourcemanager.googleapis.com/projects/508803172602 | fb-federated | 508803172602  | {"rules":[{"Kind":{"Enforce":false}}]} |
-| //cloudresourcemanager.googleapis.com/projects/343794733782 | cicp-oidc    | 343794733782  | {"rules":[{"Kind":{"Enforce":false}}]} |
-+-------------------------------------------------------------+--------------+---------------+----------------------------------------+
++--------------+----------------------------------------+
+|  projectId   |                enforced                |
++--------------+----------------------------------------+
+| fb-federated | {"rules":[{"Kind":{"Enforce":false}}]} |
+| cicp-oidc    | {"rules":[{"Kind":{"Enforce":false}}]} |
+| cicp-saml    | {"rules":[{"Kind":{"Enforce":false}}]} |
++--------------+----------------------------------------+
+
 
 ```
 
@@ -689,21 +651,34 @@ WHERE
   AND r.enforce= FALSE
 )
 SELECT
-  DISTINCT(f.name), mydataset1.get_effective_policy(CONCAT(f.resource.data.name, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
+  DISTINCT(f.resource.data.name), mydataset1.get_effective_policy(CONCAT(f.resource.data.name, "/policies/iam.disableServiceAccountKeyCreation")) as enforced
 FROM
   `mydataset1.export_cloudresourcemanager_googleapis_com_Folder` as f, a
 WHERE
   REGEXP_REPLACE(a.parent,"//cloudresourcemanager.googleapis.com/","") IN UNNEST(ancestors)'
  
-+------------------------------------------------------------+----------------------------------------+
-|                            name                            |                enforced                |
-+------------------------------------------------------------+----------------------------------------+
-| //cloudresourcemanager.googleapis.com/folders/295520844332 | {"rules":[{"Kind":{"Enforce":false}}]} |
-| //cloudresourcemanager.googleapis.com/folders/750467892309 | {"rules":[{"Kind":{"Enforce":false}}]} |
-+------------------------------------------------------------+----------------------------------------+
++----------------------+----------------------------------------+
+|         name         |                enforced                |
++----------------------+----------------------------------------+
+| folders/750467892309 | {"rules":[{"Kind":{"Enforce":false}}]} |
+| folders/295520844332 | {"rules":[{"Kind":{"Enforce":false}}]} |
++----------------------+----------------------------------------+
+
 
 ```
 
 ---
 
 Thats about it...i'll try to refine it ..or if you see any improvements or fixes, please file a git issue ( orpreferably a PR)
+
+
+---
+
+### Other References
+
+- [Realtime GCP assets and access monitoring using Cloud Asset Monitor and Cloud Log Streaming](https://blog.salrashid.dev/articles/2022/asset_monitor/)
+- [BigQuery Remote Functions in Go](https://blog.salrashid.dev/articles/2022/bq_cloud_function_golang/)
+- [Using Google Cloud IAM Deny](https://blog.salrashid.dev/articles/2022/iam_deny/)
+- [Identifying which IAM Permissions an end-user has on a resource in Google Cloud](https://blog.salrashid.dev/articles/2022/gcp_iam/)
+
+---
