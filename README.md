@@ -89,11 +89,20 @@ For a bit more background, lets look at the APIs and datastructures we'd usually
 If we query the org node using the [Asset API](https://cloud.google.com/asset-inventory/docs/reference/rest) and filter on the constraints and `orgpolicy.googleapis.com/Policy`, we'll see that the org node has exemptions in place here:
 
 * projectNumber: `135456271006 (cicp-saml)`
-* folder:  `750467892309 (folder1)` 
-    projectNumber: `343794733782 (cicp-oidc)`
+* folder:  `750467892309 (folder1)`
+  -  projectNumber: `343794733782 (cicp-oidc)`
+
+In the output below, notice the `parent` specifications covers just the individual project and containing folder where we added in the policy:
 
 
-```log
+* `"parent": "//cloudresourcemanager.googleapis.com/folders/750467892309"`
+* `"parent": "//cloudresourcemanager.googleapis.com/projects/135456271006"`
+
+
+What it does NOT show is the project within the folder that inherited the policy...
+
+
+```json
 gcloud asset list --organization=673208786098   \
    --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'  \
    --format=json | jq '.[] | select(.resource.data.name| endswith("iam.disableServiceAccountKeyCreation")) | select(.resource.data.spec.rules[].enforce==false) | .'
@@ -152,24 +161,9 @@ gcloud asset list --organization=673208786098   \
     }
 ```
 
-now take the folder `folders/750467892309` and search within it for projects
+So now take the folder `folders/750467892309` and search within it for projects
 
 ```bash
-## for some reason, the asset list on a folder doesn't work...i think this is a bug
-gcloud asset list --folder=750467892309   \
-   --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'  \
-   --format=json | jq '.[] | select(.resource.data.name| endswith("iam.disableServiceAccountKeyCreation")) | select(.resource.data.spec.rules[].enforce==false) | .'
-
-## search-all-resources only returns the policy, not the value enforced... 
-# gcloud asset search-all-resources    --scope='organizations/673208786098' \
-#        --asset-types="orgpolicy.googleapis.com/Policy" \
-#        --query="name:iam.disableServiceAccountKeyCreation"
-# gcloud asset search-all-resources    --scope='folders/750467892309' \
-#        --asset-types="orgpolicy.googleapis.com/Policy" \
-#        --query="name:iam.disableServiceAccountKeyCreation"
-#
-
-## so what we'll do is search within the folder 750467892309 for the projects under it
 gcloud asset search-all-resources    --scope='folders/750467892309' \
    --asset-types="cloudresourcemanager.googleapis.com/Project" --format=json
 
@@ -193,15 +187,19 @@ gcloud asset search-all-resources    --scope='folders/750467892309' \
         "state": "ACTIVE"
       }
     ]
-
-# and query that project
-
-$ gcloud asset list --project=cicp-oidc --billing-project=fabled-ray-104117      --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'     --format=json --format=json
-[]
-# empty...
 ```
 
-Its an empty set in this case, `cicp-oidc` gets a policy from its parent folder so there is no binding directly.  This makes it a bit harder to figure out if a specific folder has a policy inherited: you either have to use `getEffectiveOrgPolicy` api or know that the parent node has a policy in effect (eg you know `folder` has a policy)
+
+now and query that project using the same format scan as we did initially
+
+```bash
+$ gcloud asset list --project=cicp-oidc --billing-project=fabled-ray-104117      --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'     --format=json --format=json
+[]
+```
+
+Its an empty set in this case, `cicp-oidc` gets a policy from its parent folder so there is no binding directly.  
+
+This makes it a bit harder to figure out if a specific folder has a policy inherited: you either have to use `getEffectiveOrgPolicy` api or know that the parent node has a policy in effect (eg you know `folder` has a policy)
 
 
 ... the point of this background is that its an iterative approach and adds toil.
@@ -209,30 +207,32 @@ Its an empty set in this case, `cicp-oidc` gets a policy from its parent folder 
 
 ### Approach
 
-This article will try to streamline this using the Asset Inventory Export and 
+This article will try to streamline all this by
 
-* Export Asset Inventory Data to BQ where each resource type is in its own table
+1. Export Asset Inventory Data to BQ where each resource type is in its own table
+2. Query the asset inventory for resources with the policy bound
+3. Use org policy definition to determine effective policy by merging the hierarchy.
 
-![images/bq_tables.png](images/bq_tables.png)
+---
 
+1. Export Asset Inventory Data to BQ where each resource type is in its own table
 
-
-* Query the asset inventory for resources with the policy bound
-
-The specific table we're after is the `orgpolicy.googleapis.com/Policy` resource itself.
-
-That table will include data if the policy is defined 
-
-![images/bq_record.png](images/bq_record.png)
-
-![images/rules_value.png](images/rules_value.png)
+  ![images/bq_tables.png](images/bq_tables.png)
 
 
-* Use org policy definition to determine effective policy by merging the hierarchy
+2. Query the asset inventory for resources with the policy bound
 
-Use the [getEffectiveOrgPolicy](https://cloud.google.com/resource-manager/reference/rest/v1/organizations/getEffectiveOrgPolicy) against each resource by calling a [BigQuery Remote Functions in Go](https://blog.salrashid.dev/articles/2022/bq_cloud_function_golang/)
+  The specific table we're after is the `orgpolicy.googleapis.com/Policy` resource itself.
+  That table will include data if the policy is defined 
 
-The BQ remote function will accept a list of projects or folder names, then evaluate each for its effective policy and return the rules if its effective or not
+  ![images/bq_record.png](images/bq_record.png)
+
+  ![images/rules_value.png](images/rules_value.png)
+
+
+3. Use org policy definition to determine effective policy by merging the hierarchy
+
+  Use the [getEffectiveOrgPolicy](https://cloud.google.com/resource-manager/reference/rest/v1/organizations/getEffectiveOrgPolicy) against each resource by calling a [BigQuery Remote Functions in Go](https://blog.salrashid.dev/articles/2022/bq_cloud_function_golang/). The BQ remote function will accept a list of projects or folder names, then evaluate each for its effective policy and return the rules if its effective or not
 
 ---
 
@@ -259,7 +259,7 @@ gcloud asset export  --per-asset-type   --content-type resource \
    --bigquery-table export     --output-bigquery-force
 ```
 
-The following query sill show the policies that are _defined_ at a resource
+The following query will show the policies that are _defined_ at a resource
 
 - Project
 
@@ -325,9 +325,9 @@ WHERE
 
 #### Configure BQ External Function
 
-Now configure the [bigquery function](https://cloud.google.com/bigquery/docs/reference/standard-sql/remote-functions).
+Now configure the [bigquery function](https://cloud.google.com/bigquery/docs/reference/standard-sql/remote-functions) that will make the getEffectivePolicy api call.
 
-This function will accept a list of resources and will respond back with (in our case), a conformal map of the policies that re enforced or not.  
+This function will accept a list of resources and will respond back with (in our case), a conformal map of the policies that are enforced or not.  
 
 for example, if the external function receives
 
@@ -361,6 +361,8 @@ it will respond back with list of policySpecs // https://pkg.go.dev/google.golan
   ]
 }
 ```
+
+Notice that project `fabled-ray-104117` has the policy `Enforced: true`.  This is what we expect since it inherited the parent's (org node's) policy which is enforced.
 
 to set this up
 
