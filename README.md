@@ -102,7 +102,7 @@ In the output below, notice the `parent` specifications covers just the individu
 What it does NOT show is the project within the folder that inherited the policy...
 
 
-```json
+```bash
 gcloud asset list --organization=673208786098   \
    --asset-types='orgpolicy.googleapis.com/Policy' --content-type='resource'  \
    --format=json | jq '.[] | select(.resource.data.name| endswith("iam.disableServiceAccountKeyCreation")) | select(.resource.data.spec.rules[].enforce==false) | .'
