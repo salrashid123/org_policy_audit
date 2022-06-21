@@ -38,6 +38,9 @@ const (
 	assetTypePolicy    = "orgpolicy.googleapis.com/Policy"
 	cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 
+	// i don't know what per second quota limits the getEffectivePolicy has...
+	// i'm just setting a limit here to 50/second with one Cloud Run max_instance
+	// which i hope will keep it globally under 50/s.  Feel free to experiment with this
 	maxRequestsPerSecond float64 = 50 // "golang.org/x/time/rate" limiter to throttle operations
 	burst                int     = 4
 )
@@ -130,7 +133,7 @@ func GET_EFFECTIVE_POLICY(w http.ResponseWriter, r *http.Request) {
 						// https://pkg.go.dev/google.golang.org/genproto/googleapis/cloud/orgpolicy/v2#PolicySpec
 						err = json.NewEncoder(&buffer).Encode(resp.Spec)
 						if err != nil {
-							bqResp.ErrorMessage = fmt.Sprintf("Error encoding  PolicySpec_PolicyRule to json for row %d, [%v]", j, err)
+							bqResp.ErrorMessage = fmt.Sprintf("Error encoding  PolicySpec_PolicyRule to json for row %d, [%v] with value %v", j, err, resp.Spec)
 							bqResp.Replies = nil
 							cancel()
 							return
@@ -144,6 +147,7 @@ func GET_EFFECTIVE_POLICY(w http.ResponseWriter, r *http.Request) {
 		wait.Wait()
 		if bqResp.ErrorMessage != "" {
 			bqResp.Replies = nil
+			fmt.Println(bqResp.ErrorMessage)
 		} else {
 			bqResp.Replies = objs
 		}

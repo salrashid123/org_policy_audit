@@ -254,7 +254,6 @@ esodemoapp2.com  673208786098              C023zw3x8
 
 ## specify it in the export
 gcloud asset export  --per-asset-type   --content-type resource \
-   --partition-key=request-time \
    --organization 673208786098   --bigquery-dataset mydataset1  \
    --bigquery-table export     --output-bigquery-force
 ```
@@ -393,9 +392,12 @@ gcloud organizations add-iam-policy-binding  673208786098 \
 
 cd function/
 
+# deploy with just one instance
+## i'm doing  this to stay under any IAM API per second quota limits (which i dont know there are but just out of caution)
+## you can experiment with this by increasing the instance count (or dropping it) or by playing around with the limiter in code
 gcloud run deploy get-effective-policy \
    --source . \
-   --no-allow-unauthenticated
+   --no-allow-unauthenticated --max-instances 1
 
 
 export CLOUD_RUN_URL=`gcloud run services describe  get-effective-policy --format="value(status.address.url)"`
@@ -421,7 +423,7 @@ curl -s  -X POST  \
 bq --format=json query --dataset_id=$PROJECT_ID:mydataset1 --location=US --nouse_legacy_sql  "
   CREATE OR REPLACE FUNCTION  get_effective_policy(plaintext STRING) RETURNS STRING 
     REMOTE WITH CONNECTION \`$PROJECT_ID.us.my-connection\`
-    OPTIONS (endpoint = '$CLOUD_RUN_URL',  user_defined_context = [('mode', 'org-policy')] );
+    OPTIONS (endpoint = '$CLOUD_RUN_URL',  user_defined_context = [('mode', 'org-policy')], max_batching_rows = 10 );
 "
 ```
 
